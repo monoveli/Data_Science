@@ -1,0 +1,784 @@
+---
+title: "SME0820 - Modelos de Regressão e Aprendizado Supervisionado I"
+subtitle: "Trabalho 3 - Grupo 3"
+author:
+  - Brenda da Silva Muniz 11811603
+  - Francisco Rosa Dias de Miranda 4402962
+  - Heitor Carvalho Pinheiro 11833351
+  - Mônica Amaral Novelli 11810453
+date: "Dezembro 2021"
+output: pdf_document
+---
+
+
+\centering
+\raggedright
+\newpage
+\tableofcontents
+\newpage
+
+## Objetivo
+
+Este trabalho tem como objetivo ajustar um modelo de regressão linear múltipla a um conjunto de dados já trabalhado anteriormente, e também de encontrar conjuntos de dados que permitam aplicar técnicas de modelagem em regressão linear.
+
+## Conjunto de dados
+
+O dataset contém dados de um experimento para determinar **pressão**, **temperatura**, **fluxo de CO2**, **umidade** e **tamanho da partícula de amendoim** sob o **rendimento total de aceite por lote de amendoim**. [rendimento (y)].
+
+Iremos trabalhar com uma significância de 95%. 
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(knitr)
+library(ggpubr)
+library(gridExtra)
+library(GGally)
+library(pander)
+library(car)
+library(rstatix)
+library(lmtest)
+library(QuantPsyc)
+library(psych)
+library(corrplot)
+library(EnvStats)
+```
+
+```{r, echo=TRUE, warning=FALSE, message = F}
+dados <- read_csv("dados/data-table-B7.csv", locale = locale(decimal_mark = ","))
+n <- length(dados$y)
+
+# Renomeando as colunas
+names(dados) <- c("Pressao", "Temp", "FluxoCO2", "Umidade", "Tamanho", "y")
+```
+
+
+## 1. Análise Descritiva dos dados
+
+Temos cinco covariáveis quantitativas em nosso dataset:
+
+- $Y:$ Rendimento total de aceite por lote de amendoim*.
+
+- $X_1:$ Pressão
+
+- $X_2:$ Temperatura
+
+- $X_3:$ Fluxo de CO2
+
+- $X_4:$ Umidade
+
+- $X_5:$ Tamanho
+
+e a coluna $y$ corresponde a nossa variável preditora que determina **o rendimento total de aceite por lote de amendoim**.
+
+Para obtermos um resumo dos dados, podemos utilizar as funções _glimpse_ e _summary_ que nos retornarão, respectivamente, os tipos de variáveis e o máximo de observações possíveis no espaço proposto na horizontal; e, medidas descritivas das nossas variáveis, sendo estas os valores mínimo e máximo das observações, o primeiro quantil, a mediana, a média e o terceiro quantil.
+
+```{r}
+glimpse(dados)
+```
+Utilizaremos apenas as variáveis Temperatura e Tamanho para ajustar ao modelo neste trabalho, pois foi o modelo reduzido obtido na atividade prática anterior.
+
+```{r}
+pander(summary(dados[,c(2,5,6)]), "Sumário das variáveis de interesse")
+```
+
+### Gráficos de barras
+
+```{r out.height="70%"}
+dados %>%
+  pivot_longer(cols = everything()) %>%
+  ggplot() +
+  geom_bar(aes(x = as_factor(value)), stat = "count") +
+  facet_wrap(~name, scales = "free_x") +
+  labs(
+    x = "Variáveis",
+    y = "Valores",
+    title = "Gráfico de Barras - Conjunto de Dados"
+  ) +
+  theme_minimal()
+```
+
+A partir dos gráficos de barras, podemos ver que nossas cinco covariáveis, apesar de serem quantitativas, assumem apenas dois valores, com a mesma proporção. A única variável que assume mais valores do que isso é $y$, que apararenta ter uma distribuição quase uniforme.
+
+Outros gráficos que comparam as relações entre nossas variáveis é o gráfico de coordenadas paralelas e nossa matriz de correlação, ambos também explicitando a falta de correlação entre as covariáveis.
+
+### Correlações
+
+Podemos visualizando a correlação de Pearson entre as covariáveis e $y$ por meio de um gráfico de pares: fazendo uso destas correlações dispostas, podemos construir uma matriz de gráficos para expor as relações entre as variáveis. Com isso, podemos visualizar as densidades de frequência na diagonal, gráficos de dispersão no painel triangular inferior e  coeficientes das correlações no superior.
+
+```{r message = F}
+ggpairs(dados) + ggtitle("Gráfico de pares - Dados")
+```
+
+Observando o comportamento da correlação das nossas variávies e analisando os resultados dispostos, vemos que nenhuma das covariáveis se correlacionam entre si. Além disso, a maioria apresenta uma correlação muito baixa com a variável preditora - com exceção de x5 (Tamanho) - que apresenta uma correlação alta -, e x2 - que, apesar de apresentar uma correlação relativamente baixa, se torna significante devido ao cenário obtido.
+
+Essa ausência de correlação pode ser explicada pelo comportamento cruzado da maior parte das covariáveis, que também pode ser notado através do gráfico de coordenadas paralelas, repare o padrão em "X":
+
+```{r  out.height="70%"}
+ggparcoord(dados) + labs(
+  x = "Variáveis",
+  y = "Valores",
+  title = "Coordenadas Paralelas - Dados"
+) +
+  theme_minimal()
+```
+
+Definindo a covariável Tamanho como mapeamento para cor, podemos dispor outra versão dos gráficos de pontos vistos acima:
+
+```{r  out.height="70%"}
+dados %>%
+  pivot_longer(!c(Tamanho, y)) %>%
+  ggplot(aes(y = y, color = as_factor(Tamanho))) +
+  geom_point(aes(x = value)) +
+  facet_wrap(~name, scales = "free_x") +
+  labs(
+    x = "Variáveis",
+    y = "Valores",
+    title = "Gráficos de dispersão - Dados",
+    color = "Tamanho"
+  ) +
+  theme_minimal()
+```
+
+Note como a covariável Tamanho foi capaz de separar bem as variáveis no eixo y, enquanto que o mesmo feito não foi alcançado no eixo x. Temos aqui fortes indícios de independência entre as covariáveis, e o modelo reduzido que trabalharemos terá que conter apenas algumas delas.
+
+## 2. Matriz Hat
+
+Para criar a nossa matriz X, em que a primeira coluna corresponde a uma repetição de números 1, a segunda na covariável x1 e, a terceira, x2:
+
+```{r}
+X <- matrix(c(rep(1,n), dados$Temp, dados$Tamanho), ncol = 3, nrow = n, byrow = FALSE)
+```
+Definindo nossa matriz Y, que contém apenas uma coluna e é a da variável preditora y - o vetor resposta:
+
+```{r}
+Y <- matrix(dados$y, ncol = 1, nrow = length(dados$y))
+```
+
+A partir disso, podemos construir nossa matriz HAT, em que:
+
+$Hat: H = X(X^TX)^{-1}X^T$, onde
+$h_{ii}$: i-esimo elemento da diagonal de H;
+$h_{ij}$: elemento ij da matriz H.
+
+```{r}
+H <- X %*% solve(t(X) %*% X) %*% t(X)
+h <- diag(H)
+pander(summary(h), "Sumário da diagonal da matriz hat obtida")
+```
+
+```{r}
+pander(cbind("$x_2$"= dados$Temp, "$x_5$"= dados$Tamanho, h), "Influência de cada um dos pontos")
+```
+
+Temos que:
+
+$h_{ii} = \frac{1}{n} +\frac{(X_i - \overline{X})^2}{S_{XX}}$
+
+Levando isso em consideração, $h_{ii}$ deve atingir seu menor valor no ponto $\overline{X}$, se igualando a $\frac{1}{n}$.
+
+Temos então que $h_{ii}$ é uma medida de alavanca, que nos informa o quão distante do centro a observação está. Ou seja, quanto mais a observação se distancia de $\overline{X}$, mais $h_{ii}$ cresce.
+
+Com isso, é possível determinarmos possível outliers - uma vez que, se $h_{ii}$ for relativamente maior do que os das demais observações, temos que ele provavelmente será um ponto influente e distante dos demais (e da média).
+
+Analisando os resultados obtidos na tabela acima, e aplicando esses pontos, podemos observar que todos nossos pontos possuem a mesma influência, uma vez que $h_{ii}$ se mantém constante para todas as observações. Logo, provavelmente também não contamos com outliers dentre as nossas observações.
+
+Calculando $\frac{1}{n}$ e o comparando com nosso $h_{ii}$:
+
+```{r}
+1/n
+```
+
+Como contamos com  $h_{ii} = 0.1875$ para todos os valores da tabela, temos que os pontos se encontram com um afastamente uniforme dentre eles da média. 
+
+## 3. Análise de resíduos
+
+Para verificar se os pressupostos básicos que precisamos assumir para ajustar o modelo de regressão linear estão sendo satisfeitos, podemos analisar os resíduos e procurar por padrões que não tenham sido modulados. 
+
+
+### Ajuste do modelo
+
+Primeiramente, vamos construir nosso modelo e utilizar a função _summary_ para observarmos as principais medidas descritivas de nosso modelo de regressão linear.
+
+```{r}
+
+fit <- lm(y ~ Temp + Tamanho, data = dados)
+pander(fit, "Ajuste do modelo linear reduzido")
+```
+
+Note que o teste-t realizado automaticamente pelo programa já rejeita a hipótese nula de que as variáveis não sejam dignificativas ao modelo para um nível de significância de $5\%$.
+
+### Diagnóstico do modelo
+
+```{r}
+par(mfrow=c(2,2))
+plot(fit) 
+```
+
+1) Para a primeira plotagem, obtemos o gráfico dos resíduos comparados com os valores ajustados, onde é possível avaliar o pressuposto de linearidade. 
+Nesse gráfico, podemos notar que a linha vermelha está muito próxima de estar completamente no eixo horizontal, uma vez que o balanceamento de valores é muito equilibrado. Ou seja, não temos nenhuma observação que influencia nosso ajuste muito fortemente - seja positivamente ou negativamente.
+
+2) Já no segundo gráfico temos um QQ plot. Nele, podemos verificar se os resíduos apresentaram distribuição normal. Podemos ver que existe uma tendência a esta distribuição - principalmente nos pontosmais centrais. Entretanto, há um leve afastamento nas extremidades, e um falta de preenchimento de espaço no centro do gráfico, o que pode nos indicar que essa tendência não é tão forte.
+
+3) No terceiro gráfico era esperado termos os resíduos estandardizados vs valores ajustados, que serviria para verificar a  homocedasticidade. Entretanto, por conta dos valores da nossa matriz HAT serem uniformes, não é possível realizar tal plotagem. 
+
+4) Na última plotagem, podemos verificar caso existam dutliers e possíveis pontos influentes, reiterando o pressuposto no item 2 do trabalho. Como podemos ver, há uma influência alternada entre positiva e negativa, porém em aproximadamente mesmos graus de intensidade e distanciamento. Também podemos verificar a ausência de outliers, uma vez que, se houvesse, deveria haver uma linha pontilhada vermelha com pontos para fora desta.
+
+
+## 4. Testes nos resíduos
+
+Além de verificar nossas suposições graficamentes, é necessários embasá-las com o auxílio de testes estatísticos. Uma primeira suposição passível de ser verificada é a de normalidade dos resíduos. Primeiramente, olhemos para as medidas-resumo obtidas:
+
+
+```{r}
+res <- fit$residuals
+pander(summary(res), "Sumário dos resíduos")
+```
+
+O resumo dos resíduos nos indica que provavelmente devem existir outliers, como o valor $-15.38$, que se afasta muito da mediana e do 3º quantil. Podemos avaliar a suposição graficamente com o auxílio de um histograma:
+
+```{r out.height="40%"}
+ggplot(tibble(res), aes(res)) +
+  geom_histogram(aes(y = ..density..), binwidth = 4, stat = "bin") +
+  labs(
+    title = "Histograma dos resíduos",
+    y = "Densidade",
+    x = "Valor"
+  ) +
+  theme_pubclean()
+```
+
+Embora haja uma leve assimetria no gráfico, tal comportamento também pode ser em decorrência ao número reduzido de observações, mas, é difícil mensurar essa suposição sem a utilização de testes apropriados.
+
+### Teste de normalidade
+
+O teste de Shapiro-wilk tem como hipótese nula que os dados têm distribuição normal, versus a ausência de normalidade. A tabela abaixo mostra os valores do teste obtidos para os resíduos:
+
+```{r}
+pander(shapiro.test(res), "Teste de Shapiro-Wilk para os resíduos")
+```
+
+Dessa forma, confirmamos nossa suposição de que os resíduos têm distribuição Normal, pois, para um nível de confiança de 95%, o valor-p obtido, 0,7669, não rejeita a hipótese nula, de normalidade dos dados.
+
+
+### Teste de Homoscedasticidade
+
+Este teste que só funciona quando a distribuição é normal. Nele, testamos:
+
+ - $H_0$:  há homocedasticidade na amostra, versus:
+ - $H_1$:  não há homocedasticidade.
+
+A tabela abaixo ilustra os valores obtidos com o teste.
+
+```{r}
+pander(bptest(fit), "Teste de Breush-Pagan para o modelo ajustado")
+```
+
+Dado que o p-valor para o teste de Breusch-Pagan é menor que 0.05, rejeitamos a hipótese nula, e pode-se concluir que há heterocedasticidade nos dados a um nível de significância de $5\%$.
+
+### Teste de Multicolinearidade
+
+Já verificamos anteriormente através dos gráficos de dispersão que não existe colinearidade entre a maioria das variáveis independentes. Podemos formalizar este resultado através da medida $VIF$
+
+```{r}
+pander(vif(fit),caption= "VIF das covariáveis do modelo reduzido")
+```
+Considerando o nosso modelo reduzido, uma vez que $VIF = 1$ para as duas covariáveis, podemos concluir que não existe correlação linear entre elas.
+
+### Teste ANOVA
+
+Além disso, para determinar matematicamente se existe uma relação linear entre a variável resposta $\boldsymbol{Y}$ e qualquer as outras covariáveis $\boldsymbol{X}_1,\ldots,\boldsymbol{X}_k$, é possível utilizar o teste **ANOVA**. Nele, queremos testar:
+
+**$H_0$**: Nenhuma das variáveis contribui significativamente ao modelo, versus:
+
+**$H_a$**: Pelo menos uma das covariáveis contribui significativamente ao modelo.
+
+```{r}
+pander(anova(fit), "Tabela ANOVA do modelo ajustado")
+```
+
+Neste caso, os dois p-valores obtidos rejeitam $H_0$ a um nível de significância de $5\%$. Dessa forma, ambas as covariáveis contribuem significativamente ao modelo.
+
+
+## 5. Resíduos Escalonados
+
+Definimos os resíduos como sendo 
+
+$$e_i = y_i - \hat{y_i}, \ \ i = 1, ..., n.$$
+
+Iniciamos essa sessão apresentando os coeficientes ajustados de nosso modelo.
+
+```{r}
+pander(fit$coefficients, "Coeficientes do modelo ajustado")
+```
+Dessa forma, 
+
+$$Y = 80.134 +0.282 x_2 -16.065x_5$$
+
+### Interpretação dos coeficientes:
+
+ - $\beta_0$: Quando todos os $x_i$ são iguais a zero, o valor esperado de $y$ é de 80,134.
+ - $\beta_2$: Em média, para cada aumento de 1 ponto na Temperatura, esperamos um aumento de 0,282 em $y$, com todo o resto mantido constante.
+ - $\beta_5$:  Em média, a cada aumento de 1 ponto no Tamanho, é esperado um descréscimo de 16,065 unidades em $y$, com todo o resto mantido constante.
+ 
+ 
+É útil trabalharmos com o escalonamento dos resíduos para encontrarmos **outliers**, observações que estejam de alguma maneira separadas do resto dos dados.
+
+### Quadrado Médio dos Resíduos
+
+Temos que $QM_{res} = \frac{1}{(n-p)}\sum_{i=1}^n e_i^2$, que será nosso critério para saber se a retirada de uma possível observação influente melhora ou piora nosso modelo.
+
+```{r}
+QMRes <- anova(fit)$`Mean Sq`[3]
+pander(cat("QMres: ", QMRes))
+```
+
+
+### Resíduo Padronizado
+
+Sendo a variância média dos resíduos estimada por $QM_{res}$, para torna-lá igual a 1 basta fazermos:
+
+$$d_i = \frac{e_i}{\sqrt{QM_{res}}},\ \  i = 1, ..., n.$$
+
+Consequentemente, valores grandes (como, digamos, $d_i > 2$) potencialmente indicam um **outlier**.  Note que $QM_{res}$ é apenas uma aproximação para a variância do i-ésimo resíduo, o que pode ocasionar em distorções em sua estimação.
+
+
+```{r}
+res.padr <- res / sqrt( QMRes)
+res.padr
+```
+
+Não observamos nenhum ponto influente em comparação com os demais com essa metodologia.
+
+### Resíduo Studentizado Internamente
+
+Podemos refinar o método anterior escalonando o resíduo pelo desvio-padrão 'exato' do i-ésimo resíduo e levando em consideração onde o ponto da variável está no espaço.
+
+Utilizando a matriz hat, podemos estimar a variância do i-ésimo resíduo como sendo:
+
+$$Var(e_i) = \sigma^2(1-h_{ii})$$
+
+Onde $h_{ii}$ é o i-ésimo elemento da diagonal da matriz Hat. Ainda mais, como essa é uma medida de **locação** do i-ésimo ponto com respeito a $x$, a variância de $e_i$ depende de onde o ponto $x_i$ está. Dessa forma:
+
+$$r_i = \frac{e_i}{\sqrt{QM_{res}(1- h_{ii})}}$$
+
+```{r}
+res.int.st <- res / sqrt( QMRes * (1 - h))
+res.int.st
+```
+
+A observação 7 obteve um valor alto aqui, fornecendo indícios que possa ser um ponto de interesse para nossa análise.
+
+### Resíduo Studentizado Externamente
+
+Primeiro calculamos o **QMRes** do resíduo sem a $i$-ésima observação, com $i = 1,\ldots, n$ (cálculo das $n$ variâncias sem a $i$-ésima observação, com $i = 1,\ldots, n$).
+
+
+```{r}
+p <- 3
+S_i <- ( (n - p) * QMRes - res^2 / (1 - h)  ) / (n - p - 1)
+S_i
+```
+
+Se não tivermos nem uma observação influente, esperamos que res.int.st esteja próximo de res.ext.st. Se tivermos a $i$-ésima observação influente então esperamos que o i-ésimo res.ext.st seja maior em comparação com o $i$-ésimo res.int.st. Assim,
+
+$$t_i = \frac{e_i}{\sqrt{S^2_{(i)}(1 - h_{ii})}}$$
+
+```{r}
+res.ext.st <- res / sqrt( S_i * (1 - h))
+res.ext.st
+```
+
+Novamente, observação 7 destoou das demais.
+
+### Observações remotas no espaço
+
+Esses pontos podem potencialmente controlar algumas das propriedades do modelo de regressão.
+
+```{r out.height="40%"}
+ggplot(tibble(S_i), aes(x = S_i)) + geom_boxplot() 
+```
+
+A observação 7 foi a mais afastada, apresentando resíduo Studentizado igual a 49.23397. Vamos retirá-la do modelo e calcular o $QM_{res}$.
+
+```{r}
+fit7 <- lm(y ~ Temp + Tamanho, subset = -7, data = dados)
+pander(cat("QMres: ", anova(fit7)$`Mean Sq`[3]))
+```
+
+Como o quadrado médio dos resíduos diminuiu, concluímos que a retirada da observação 7 contribuiu para um melhor ajuste do modelo de regressão linear múltipla.
+
+
+## 6. Comparações resíduos escalonados
+
+```{r}
+nome_colunas <- c('$i$', '$e_i (1)$', '$d_i (2)$', '$r_i (3)$', '$h_{ii}$', '$t_i (4)$')
+tab <- tibble(i= 1:16, res, res.padr, res.int.st, h, res.ext.st)
+pander(tab, col.names = nome_colunas, "Resíduos escalonados obtidos")
+```
+
+ - (1) analisando os resíduos, vemos que $e_7 = -15.38$ é grande;
+ - (2) Resíduo padronizado: não temos nenhum $d_i > 2$;
+ - (3) Resíduo Studentizado: aqui $r_7$ é grande, indicando um ponto remoto influente;
+ - (4) Resíduo Studentizado Externamente: $t_i - t_7 > r_7$ e portanto o $QM_{res}$ sem ele é menor do que com todas as observações.
+  
+  
+## 7. Gráfico de Resíduos versus ajuste
+
+Nessa sessão, avaliaremos os gráficos de cada um dos resíduos escalonados versus ajuste, obtidos no item anterior. Esse tipo de análise pode contribuir em exibir padrões não modulados pelo ajuste, sendo desejável a impressão de uma banda horizontal contendo os resíduos.
+
+```{r}
+res_types <- as_labeller(c(
+                          'res'= "Resíduos",
+                          'res.ext.st' = "Resíduos Studentizados Externamente",
+                          'res.int.st' = "Resíduos Studentizados Internamente",
+                          'res.padr' = "Resíduos Padronizados"))
+```
+
+
+```{r}
+  fit_vs_val <- tab %>% bind_cols(fitted = fit$fitted.values) %>%
+  dplyr::select(!c(i,h)) %>%
+  pivot_longer(!fitted)
+  
+  fit_vs_val %>% 
+  ggplot() +
+  geom_hline(yintercept = 0) +
+  geom_hline(yintercept = -2, lty = 3, color = "red") +
+  geom_hline(yintercept = 2, lty = 3, color = "red") +
+  facet_wrap(~name, scales = "free_y", labeller = res_types) +
+  geom_point(aes(x = fitted, y = value)) +
+  labs(title = "Resíduos versus ajuste",
+       x = "Valor ajustado",
+       y = "Resíduo") +
+  theme_pubclean()
+```
+
+Não foi observado nenhum padrão nos plots residuais, o que nos fornece indícios gráficos de uma certa dispersão aleatória dos resíduos, com os escalonamentos aparentando ter contribuído para diminuição da variância, como seria esperado. Apenas a observação 7 ficou fora das bandas de controle estipuladas no caso dos resíduos studentizados.
+
+  
+## 8. Transformações
+
+Conforme observado através do resultado obtido na questão anterior, constatamos que nosso ajuste obteve algum sucesso dado que vários dos probelmas iniciais foram solucionados. No entanto, apesar da melhora ser visível, ainda é possível melhorar alguns pontos, tais como a presença de  heterocedasticidade nos dados; e a constância da variância. Então, com a finalidade de comparar,  como não há uma relação bem definida entre as covariáveis, optaremos por uma transformação na variável resposta.
+
+### Fazendo a tranformação na variável resposta
+
+```{r}
+mod_logy <- lm(log(y) ~ Temp + Tamanho , data = dados)
+pander(mod_logy)
+```
+
+### Significância da Regressão
+
+```{r}
+pander(anova(mod_logy))
+```
+
+
+```{r}
+n <- length(dados$y)
+Xmod_logy <- NULL
+Xmod_logy <- matrix(c(rep(1,n),dados$Temp,dados$Tamanho), nrow=n, ncol=3 )
+Hmod_logy <- Xmod_logy %*% solve(t(Xmod_logy) %*% Xmod_logy) %*% t(Xmod_logy)
+hmod_logy <- diag(Hmod_logy)
+pander(summary(hmod_logy), 'Sumário de $h_{ii}$')
+```
+
+```{r}
+n <- length(dados$y)
+betasmod_logy <- as.vector(mod_logy$coefficients)
+b0_estmod_logy <- betasmod_logy[1]
+b1_estmod_logy <- betasmod_logy[2]
+b2_estmod_logy <- betasmod_logy[3]
+y_estmod_logy <- as.vector(mod_logy$fitted.values)
+resmod_logy <- log(dados$y) - y_estmod_logy
+betasmod_logy
+```
+
+
+### Interpretação dos coeficientes:
+
+ - $\beta_0$: Quando todos os $x_i$ são iguais a zero, o valor esperado de $y$ passou de 80.134 para  4.374.
+ - $\beta_2$: Em média, para cada aumento de 1 ponto na Temperatura, esperávamos um aumento de 0.282 em $y$, agora esperamos um de 0.006 com todo o resto mantido constante.
+ - $\beta_5$:  Em média, a cada aumento de 1 ponto no Tamanho, era esperado um descréscimo de 16.065 unidades em $y$, agora esperamos um de -0.331 com todo o resto mantido constante.
+
+
+```{r}
+p <- 3 # Número de Parâmetros Estimados
+SQResmod_logy <- sum((resmod_logy)^2)
+QMResmod_logy <- SQResmod_logy / (n-p)
+SQResmod_logy
+QMResmod_logy
+```
+
+```{r}
+pander(bptest(mod_logy))
+```
+
+Vale ressaltar que mesmo este novo modelo tendo apresentado um aumento referente ao modelo inicial, o p-valor para o teste de Breusch-Pagan continua sendo menor que 0.05, novamente rejeitamos a hipótese nula, e pode-se concluir que continua havendo heterocedasticidade nos dados a um nível de significância de $5\%$
+
+```{r}
+pander(shapiro.test(mod_logy$residuals))
+```
+
+Neste novo modelo, houve um aumento significativo no p-valor, reafirmando que os dados realmente possuem distribuição normal.
+
+```{r}
+par(mfrow = c(1, 1))
+qqnorm(mod_logy$residuals)
+qqline(mod_logy$residuals, col= 'red')
+```
+
+#### Resíduos
+
+```{r}
+res_mod_logy <- mod_logy$residuals
+```
+
+#### Resíduo Padronizado
+```{r}
+res.padr_mod_logy <- resmod_logy / sqrt( QMResmod_logy)
+```
+
+#### Resíduo Internamente Studentizado
+
+```{r}
+res.int.st_mod_logy<-rstandard(mod_logy)
+```
+
+#### Resíduo Externamente Studentizado
+```{r}
+res.ext.st_mod_logy <- rstudent(mod_logy)
+```
+
+#### Resíduos pelos Valores Ajustados
+
+```{r}
+par(mfrow = c( 2, 2))
+y_estmod_logy <- mod_logy$fitted.values
+plot(res_mod_logy ~ y_estmod_logy,
+     ylab = "Residuos", xlab = "Valores ajustados", main = "Residuos")
+plot(res.padr_mod_logy ~ y_estmod_logy,
+    ylab = "Residuos padronizados", xlab = "Valores ajustados", main = "Padronizados", ylim = c(-3, 3))
+abline(h = c(-2, 2), col = 'red', lty = 3)
+which(res.padr_mod_logy > 2)
+plot(res.int.st_mod_logy ~ y_estmod_logy, ylab = "Residuos internamente studentizados", xlab
+ = "Valores ajustados", main = "Internamente studentizados")
+plot(res.ext.st_mod_logy ~ y_estmod_logy, ylab = "Residuos externamente studentizados", xlab
+ = "Valores ajustados", main = "Externamente studentizados")
+```
+
+Novamente não foi observado nenhum padrão nos plots residuais, o que reforça nossos indícios gráficos de uma certa dispersão aleatória dos resíduos. Porém, no ajuste realizado na questão anterior apenas a observação 7 encontrava-se fora das bandas de controle estipuladas no caso dos resíduos studentizados, já agora, através da visualização gráfica, o número de outliers parece ter aumentado. 
+
+### Comparação dos Resíduos
+
+```{r}
+
+tab <- tibble(i= 1:16, res_mod_logy, res.padr_mod_logy, res.int.st_mod_logy, h, res.ext.st_mod_logy)
+
+pander(tab, col.names = nome_colunas, "Resíduos escalonados obtidos")
+
+```
+
+Os resíduos escalonados são úteis para identificarmos valores extremos, sendo os resíduos padronizados uma estimativa para a variância dos resíduos. Logo, como houve um aumento significativo destes, constatou-se um aumento no número de outliers.
+
+```{r}
+par(mfrow=c(1,1))
+plot(res_mod_logy~dados$Temp+dados$Tamanho)
+```
+  
+  
+## 9. Teste de Falta de ajuste
+
+Adaptamos um dataset que contém dados do comprimento da mandíbula de veados com relação à idade do animal, arredondando os valores das variáveis para a inclusão de réplicas, a fim de simularmos a falta de ajuste do modelo, e propor uma transformação que solucione o problema.
+
+```{r message = F}
+dados2 <- read_delim("dados/mandibulas.txt", ",")
+#Ajustando um modelo linear
+fit2 <- lm(bone ~ age, data = dados2)
+pander(fit2)
+```
+
+Com os dados carregados, primeiramente plotamos o gráfico de dispersão da Idade versus comprimento da mandíbula:
+
+```{r}
+dados2 %>% ggplot() +
+  geom_point(aes(x= age, y = bone))
+```
+Note um certo padrão não linear no gráfico acima, que reflete na falta de ajuste linear, explicitada no gráfico dos resíduos versus ajuste.
+
+```{r}
+tibble(res = fit2$residuals, fit = fit2$fitted.values) %>%
+  ggplot(aes(x = fit, y = res)) +
+  geom_point() + 
+stat_smooth(method = "lm", formula = y ~ x + I(x^2), size = 0) +
+  labs(title = "Resíduos versus ajuste",
+       x = "Valor ajustado",
+       y = "Resíduo") +
+  theme_pubclean()
+```
+
+
+Nota-se um certo padrão quadrático no gráfico acima, o que nos sugere indícios da falta de ajuste do modelo.
+
+### ANOVA da falta de ajuste
+
+```{r}
+pander(anova(fit2), "ANOVA da modelo ajustado")
+```
+
+A falta de ajuste pode ser quantificada através do teste ANOVA apropriado.
+
+$H_0: E[Y] = \beta_0 + \beta_1.X$, versus
+$H_1: E[Y] \neq \beta_0 + \beta_1.X$
+
+```{r}
+pander(anovaPE(fit2), "ANOVA da falta de ajuste do modelo linear")
+```
+
+Dessa maneira, ao nível de $5\%$ de significância, temos evidências de que há falta de ajuste no modelo linear de regressão. Como alternativa, podemos efetuar uma transformação na variável `age`.
+
+### Transformação na variável dependente
+
+Vamos efetuar a transformação $x = \ln(x)$ e analisar.
+
+```{r}
+dados2 <- dados2 %>% mutate(lnAge = ifelse( age > 0,
+                                    log(age),
+                                    0))
+
+dados2 %>% ggplot(aes(x= lnAge, y = bone)) +
+  geom_point() +
+  geom_smooth(formula = y~x, method = "lm")
+
+```
+
+Aparentemente, a transformação contribuiu para a linearidade do modelo. Façamos agora o ajuste:
+
+```{r}
+fit2_ln <- lm(bone ~ lnAge, data = dados2)
+
+pander(fit2_ln)
+```
+
+```{r}
+tibble(res = fit2_ln$residuals, fit = fit2_ln$fitted.values) %>%
+  ggplot(aes(x = fit, y = res)) +
+  geom_point() + 
+  geom_hline(yintercept = 0)+
+  labs(title = "Resíduos versus ajuste",
+       x = "Valor ajustado",
+       y = "Resíduo") +
+  theme_pubclean()
+```
+A transformação proposta aparentemente retirou o padrão indesejado de nossos dados. É necessário confirmarmos essa suposição através do mesmo teste realizado anteriormente.
+
+```{r}
+pander(anovaPE(fit2_ln), "ANOVA da falta de ajuste do modelo linear transformado")
+```
+
+Note que agora não rejeitamos $H_0$ a um nível de significância de 5%. Dessa forma, a transformação proposta foi capaz de solucionar a falta de ajuste do modelo.
+
+Além disso, o SQEP e o SQFA são menores, sugerindo que o novo modelo é melhor em explicar a fonte de variabilidade dos dados.
+  
+## 10. Mínimos Quadrados Ponderados
+
+A Continuação será apresentado um exemplo simulado de falta de ajuste.
+
+**Exemplo**: Um pesquisador no setor de vendas queria estudar a associação entre o faturamento mensal médio de vendas de lanches (Y) e a despesa por mês com divulção(X). Os dados referentes a 30 lanchonetes encontram-se abaixo:
+
+```{r}
+x<-c(2,2,2,4,4.0,4,8,8,8,8,8,8,11,11,11,11,11,14
+     ,14,14,14,14,14,16,16,16,18,18,18,18)
+y<-c(89,73,72,80,112,99,79,114,116,92,131,149,109,157,103,147,
+     82,113,149,121,99,103,110,170,189,122,203,115,217,204)
+gasto_venda= data.frame(cbind(x,y))
+```
+
+Note que que estes dados indicam falta de ajuste a um modelo linear
+
+```{r}
+pairs.panels(gasto_venda)
+```
+
+Portanto, devemos realizar o ajuste do modelo utilizando o Método de Mínimos Quadrados Ponderados. Para isso deve-se observar as estimativas do Erro Puro para cada nível de X, ou seja, os valores de Var(Y | X). Observe a função abaixo:
+
+```{r}
+ pander(tapply(gasto_venda[,2],as.factor(gasto_venda[,1]),var))
+```
+```{r}
+gasto <-c(2,4,8,11,14,16,18)
+v<-c(91.0000,  259.0000,  645.1000,  987.8000,  323.3667, 1192.3333, 2202.9167)
+plot (gasto,v,xlab="Gasto",ylab="Variância (Venda|Gasto)" )
+```
+
+Observa-se que Var(Venda | Gasto) é proporcional ao Gasto. Sendo assim, o peso $W_i$ deve ser
+inversamente proporcional ao $X_i$.
+
+```{r}
+wi <- c(1/2 ,1/4 ,1/8 ,1/11 ,1/14 ,1/16 ,1/18)
+valores_peso= data.frame(cbind(gasto,wi))
+valores_peso %>% 
+  pander()
+```
+
+Abaixo encontra-se nosso comando R para o ajuste do modelo via Método de Mínimos Quadrados Ponderados e a respectiva saída do software com os coeficientes ajustados.
+
+### Cálculo do ajuste ponderado 
+
+```{r}
+ajuste_ponderado=lm(formula = y ~ x, weights = 1/x)
+pander(ajuste_ponderado)
+```
+
+### Cálculo da Anova
+
+```{r}
+pander(anova(ajuste_ponderado))
+```
+
+### Gráficos para Análise dos Resíduos
+
+```{r}
+plot(x,ajuste_ponderado$residuals,
+     main = expression(paste("Resíduos vs Gasto")),
+     xlab="Valores Ajustados Ponderados",ylab="Resíduos")
+```
+
+```{r}
+plot(ajuste_ponderado$fitted.values,ajuste_ponderado$residuals,
+     main = expression(paste(" Resíduos vs Valores ajustados")),
+     xlab="Valores Ajustados Ponderados",ylab="Resíduos")
+```
+
+As Figuras acima evidenciam que o problema da heterocedasticidade dos erros foi solucionado, pois nos dois
+gráficos os resíduos ponderados estão dispostos homogeneamente em torno de zero.
+
+Note também, que os coeficientes (Betas) estimados seriam:
+
+```{r}
+b0_est=ajuste_ponderado$coefficients[1]
+b1_est=ajuste_ponderado$coefficients[2]
+pander(ajuste_ponderado)
+```
+
+### Gráfico da reta ajustada aos dados
+```{r}
+plot(x,y,
+ main = expression(paste("Reta ajustada com ",
+ hat(beta)[0],"=70.03587",
+ " e ", hat(beta)[1],"=4.978227")),
+ xlab = "x", ylab = "y")
+curve(b0_est + b1_est*x, add = T, col = 'red')
+```  
+
+
+## Conclusão
+
+Neste trabalho, pudemos continuar nossa análise do modelo de regressão linear múltipla obtido na atividade anterior, efetuar diagnósticos e confirmar nossas suposições a respeito das distribuição das quantidades de interesse envolvidas na modelagem.
+
+O conjunto de dados analisado forneceu insights a respeito de como a independência de variáveis pode ocorrer, e como ela interfere na boa qualidade do ajuste, sendo necessário a utilização de uma grande gama de técnicas, desenvolvidas durante a disciplina.
+
+Os últimos exercícios forneceram um aprendizado valioso em como encontrar, tratar dados para que satisfaçam as suposições necessárias para aplicar métodos como Falta de Ajuste do Modelo ou Mínimos Quadrados Ponderados. A oportunidade de desenvolver esses métodos através de uma abordagem prática foi muito valiosa aos integrantes.
+
+
