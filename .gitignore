@@ -1,0 +1,17 @@
+# notebooks
+.ipynb_checkpoints/
+
+# dados/artefatos
+data/
+datasets/
+*.csv
+*.parquet
+*.zip
+*.pkl
+*.model
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.env
