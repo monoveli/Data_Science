@@ -1,13 +1,27 @@
 # Data_Science
 Portfólio com análises e projetos de Data Science em Python.
 
-# Problemas explorados:
-## FIFA 
-Predição de jogadores com características similares baseadas na análise do dataset geral do FIFA 21, predição da posição de um jogador fictício e encontrar um potencial jogador com uma distribuição similar de atributos da nossa entrada.
-### IMPORTANTE! Visualizar notebook pelo Google Colaboratory (link anexado no notebook) devido à interatividade dos gráficos.
+## Como iniciar
+```bash
+pip install -r requirements.txt
+```
 
-## Rendimento de gasolina 
-Ajuste de um modelo de regressão linear simples para determinar o rendimento de gasolina relacionado a partir de cilindradas do motor.
+## Plano de estudos
+Consulte `plano_estudos.md` na raiz para o conteúdo completo das anotações.
 
-## Rendimento de aceite 
-Ajuste de um modelo de regressão linear múltipla para determinar o rendimento total de aceite por lote de amendoim.
+## Tópicos de estudo
+- [01 Regressão Linear](topics/01-regressao-linear/README.md)
+- [02 Pressupostos da Regressão](topics/02-pressupostos-regressao/README.md)
+- [03 Regressão Logística](topics/03-regressao-logistica/README.md)
+- [04 Padronização, Normalização e Regularização](topics/04-normalizacao-regularizacao/README.md)
+- [05 Avaliação de Modelos](topics/05-avaliacao-modelos/README.md)
+- [06 Árvores, Random Forest, XGBoost](topics/06-arvores-rf-xgb/README.md)
+- [07 Interpretabilidade](topics/07-interpretabilidade/README.md)
+- [08 Pipelines e Pré-processamento](topics/08-pipelines/README.md)
+- [09 Produção: Docker, Cloud, CI/CD](topics/09-producao-ci/README.md)
+- [10 Clustering](topics/10-clustering/README.md)
+- [11 Redes Neurais](topics/11-redes-neurais/README.md)
+
+## Projetos anteriores
+- `FIFA/`: análise interativa do FIFA 21
+- `rendimento_gasolina/` e `análise_regressão/`: experimentos e estudos de regressão
