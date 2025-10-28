@@ -56,5 +56,6 @@ K-Fold Cross-Validation:
 No fim, tiramos a média dos erros dos K testes, que será a estimativa final do desempenho do modelo. A ideia é similar a do Bootstrapping de combinar erros individuais para estimar generalização.
 
 Outras variações são:
+
 * Leave-One-Out (LOOCV): um caso extremo em que cada fold tem apenas uma observação.O modelo é treinado em todos os outros n−1 pontos e testado naquele único. É muito exato, mas computacionalmente caro.
 * Stratified K-Fold: Usado em problemas de classificação, garante que cada fold mantenha a proporção original das classes. 
